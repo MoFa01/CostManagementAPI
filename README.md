@@ -59,7 +59,7 @@ CostManagementAPI/
 
 1. Clone the repository
    ```
-   git clone https://github.com/yourusername/CostManagementAPI.git
+   git clone https://github.com/MoFa01/CostManagementAPI.git
    ```
 
 2. Navigate to the project directory
@@ -79,7 +79,7 @@ CostManagementAPI/
 
 5. Access the Swagger UI
    ```
-   https://localhost:5001/swagger
+   http://localhost:3000/swagger
    ```
 
 
