@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 
 // Models
@@ -10,11 +11,38 @@ public class Invoice
     public decimal Amount { get; set; }
     public DateTime IssueDate { get; set; }
     public DateTime DueDate { get; set; }
-    public InvoiceStatus Status { get; set; }
+    
+    private string _status = string.Empty;
+    public string Status 
+    { 
+        get => _status;
+        set 
+        {
+            if (!IsValidInvoiceStatus(value))
+                throw new ArgumentException($"Invalid invoice status: {value}. Valid values are: Draft, Pending, Paid, Unpaid, Overdue, Cancelled");
+            _status = value;
+        }
+    }
+    
     public List<Payment> Payments { get; set; } = new();
 
     public decimal PaidAmount => Payments.Sum(p => p.Amount);
     public decimal RemainingAmount => Amount - PaidAmount;
+    
+    public static bool IsValidInvoiceStatus(string status)
+    {
+        return status == "Draft" || 
+               status == "Pending" || 
+               status == "Paid" || 
+               status == "Unpaid" || 
+               status == "Overdue" || 
+               status == "Cancelled";
+    }
+    
+    public static readonly string[] ValidStatusValues = new[] 
+    {
+        "Draft", "Pending", "Paid", "Unpaid", "Overdue", "Cancelled"
+    };
 }
 
 public class Payment
@@ -54,7 +82,7 @@ public class InvoiceSummaryItem
     public decimal Amount { get; set; }
     public decimal PaidAmount { get; set; }
     public decimal RemainingAmount { get; set; }
-    public InvoiceStatus Status { get; set; }
+    public string Status { get; set; } = string.Empty;
     public DateTime IssueDate { get; set; }
     public DateTime DueDate { get; set; }
 }
@@ -65,17 +93,7 @@ public class ReportStatistics
     public decimal TotalAmount { get; set; }
     public decimal TotalPaid { get; set; }
     public decimal TotalOutstanding { get; set; }
-    public Dictionary<InvoiceStatus, int> StatusBreakdown { get; set; } = new();
-}
-
-public enum InvoiceStatus
-{
-    Draft,
-    Pending,
-    Paid,
-    Unpaid,
-    Overdue,
-    Cancelled
+    public Dictionary<string, int> StatusBreakdown { get; set; } = new();
 }
 
 public enum PaymentMethod
@@ -85,8 +103,7 @@ public enum PaymentMethod
     Debit,
     BankTransfer,
     Check,
-    PayPal,
-    Other
+    PayPal
 }
 
 // DTOs
@@ -105,13 +122,56 @@ public class LogPaymentRequest
     public string? Reference { get; set; }
 }
 
+public class CreateInvoiceRequest
+{
+    [Required]
+    public string ClientId { get; set; } = string.Empty;
+    
+    [Required]
+    [Range(0.01, double.MaxValue, ErrorMessage = "Invoice amount must be greater than 0")]
+    public decimal Amount { get; set; }
+    
+    [Required]
+    public DateTime IssueDate { get; set; }
+    
+    [Required]
+    public DateTime DueDate { get; set; }
+    
+    [Required]
+    [CustomValidation(typeof(CreateInvoiceRequest), nameof(ValidateStatus))]
+    public string Status { get; set; } = "Draft";
+    
+    public static ValidationResult ValidateStatus(string status, ValidationContext context)
+    {
+        if (!Invoice.IsValidInvoiceStatus(status))
+        {
+            return new ValidationResult(
+                $"Invalid invoice status: {status}. Valid values are: {string.Join(", ", Invoice.ValidStatusValues)}");
+        }
+        
+        return ValidationResult.Success;
+    }
+}
+
 public class UpdateInvoiceStatusRequest
 {
     [Required]
     public int InvoiceId { get; set; }
 
     [Required]
-    public InvoiceStatus Status { get; set; }
+    [CustomValidation(typeof(UpdateInvoiceStatusRequest), nameof(ValidateStatus))]
+    public string Status { get; set; } = string.Empty;
+    
+    public static ValidationResult ValidateStatus(string status, ValidationContext context)
+    {
+        if (!Invoice.IsValidInvoiceStatus(status))
+        {
+            return new ValidationResult(
+                $"Invalid invoice status: {status}. Valid values are: {string.Join(", ", Invoice.ValidStatusValues)}");
+        }
+        
+        return ValidationResult.Success;
+    }
 }
 
 public class GenerateReceiptRequest
@@ -127,8 +187,21 @@ public class InvoiceReportRequest
 {
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
-    public InvoiceStatus? Status { get; set; }
+    
+    [CustomValidation(typeof(InvoiceReportRequest), nameof(ValidateStatus))]
+    public string? Status { get; set; }
     public string? ClientId { get; set; }
+    
+    public static ValidationResult ValidateStatus(string status, ValidationContext context)
+    {
+        if (status != null && !Invoice.IsValidInvoiceStatus(status))
+        {
+            return new ValidationResult(
+                $"Invalid invoice status: {status}. Valid values are: {string.Join(", ", Invoice.ValidStatusValues)}");
+        }
+        
+        return ValidationResult.Success;
+    }
 }
 
 // Singleton DataStore
@@ -166,7 +239,7 @@ public class DataStore
             Amount = 1000m,
             IssueDate = DateTime.Now.AddDays(-30),
             DueDate = DateTime.Now.AddDays(-10),
-            Status = InvoiceStatus.Overdue
+            Status = "Overdue"
         };
 
         var invoice2 = new Invoice
@@ -176,7 +249,7 @@ public class DataStore
             Amount = 500m,
             IssueDate = DateTime.Now.AddDays(-15),
             DueDate = DateTime.Now.AddDays(15),
-            Status = InvoiceStatus.Unpaid
+            Status = "Unpaid"
         };
 
         _invoices[invoice1.Id] = invoice1;
@@ -198,7 +271,7 @@ public interface IReceiptGeneratorService
 public interface IInvoiceStatusService
 {
     Task<Invoice> UpdateInvoiceStatusAsync(UpdateInvoiceStatusRequest request);
-    Task<InvoiceStatus> GetInvoiceStatusAsync(int invoiceId);
+    Task<string> GetInvoiceStatusAsync(int invoiceId);
 }
 
 public interface IPaymentHistoryService
@@ -220,6 +293,9 @@ public class PaymentLoggingService : IPaymentLoggingService
         if (!_dataStore.Invoices.TryGetValue(request.InvoiceId, out var invoice))
             throw new ArgumentException($"Invoice with ID {request.InvoiceId} not found");
 
+        if (!Enum.IsDefined(typeof(PaymentMethod), request.Method))
+            throw new ArgumentException($"Invalid payment method: {request.Method}");
+
         var payment = new Payment
         {
             Id = _dataStore.GetNextPaymentId(),
@@ -236,11 +312,11 @@ public class PaymentLoggingService : IPaymentLoggingService
         // Update invoice status based on payment
         if (invoice.PaidAmount >= invoice.Amount)
         {
-            invoice.Status = InvoiceStatus.Paid;
+            invoice.Status = "Paid";
         }
-        else if (invoice.Status == InvoiceStatus.Overdue || invoice.Status == InvoiceStatus.Unpaid)
+        else if (invoice.Status == "Overdue" || invoice.Status == "Unpaid")
         {
-            invoice.Status = invoice.DueDate < DateTime.Now ? InvoiceStatus.Overdue : InvoiceStatus.Unpaid;
+            invoice.Status = invoice.DueDate < DateTime.Now ? "Overdue" : "Unpaid";
         }
 
         return await Task.FromResult(payment);
@@ -261,6 +337,9 @@ public class ReceiptGeneratorService : IReceiptGeneratorService
 
         if (payment.InvoiceId != request.InvoiceId)
             throw new ArgumentException("Payment does not belong to the specified invoice");
+
+        if (!Enum.IsDefined(typeof(PaymentMethod), payment.Method))
+            throw new ArgumentException($"Invalid payment method: {payment.Method}");
 
         var receipt = new Receipt
         {
@@ -294,7 +373,7 @@ public class InvoiceStatusService : IInvoiceStatusService
         return await Task.FromResult(invoice);
     }
 
-    public async Task<InvoiceStatus> GetInvoiceStatusAsync(int invoiceId)
+    public async Task<string> GetInvoiceStatusAsync(int invoiceId)
     {
         if (!_dataStore.Invoices.TryGetValue(invoiceId, out var invoice))
             throw new ArgumentException($"Invoice with ID {invoiceId} not found");
@@ -331,8 +410,8 @@ public class InvoiceReportService : IInvoiceReportService
         if (request.EndDate.HasValue)
             invoices = invoices.Where(i => i.IssueDate <= request.EndDate.Value);
 
-        if (request.Status.HasValue)
-            invoices = invoices.Where(i => i.Status == request.Status.Value);
+        if (!string.IsNullOrEmpty(request.Status))
+            invoices = invoices.Where(i => i.Status == request.Status);
 
         if (!string.IsNullOrEmpty(request.ClientId))
             invoices = invoices.Where(i => i.ClientId == request.ClientId);
@@ -346,7 +425,7 @@ public class InvoiceReportService : IInvoiceReportService
             {
                 ["StartDate"] = request.StartDate?.ToString("yyyy-MM-dd") ?? "N/A",
                 ["EndDate"] = request.EndDate?.ToString("yyyy-MM-dd") ?? "N/A",
-                ["Status"] = request.Status?.ToString() ?? "All",
+                ["Status"] = request.Status ?? "All",
                 ["ClientId"] = request.ClientId ?? "All"
             },
             Items = filteredInvoices.Select(i => new InvoiceSummaryItem
@@ -446,6 +525,44 @@ public class InvoiceController : ControllerBase
         _invoiceReportService = invoiceReportService;
     }
 
+    [HttpPost]
+    public ActionResult<Invoice> CreateInvoice([FromBody] CreateInvoiceRequest request)
+    {
+        try
+        {
+            if (request.DueDate < request.IssueDate)
+            {
+                return BadRequest("Due date cannot be earlier than issue date");
+            }
+
+            var invoice = new Invoice
+            {
+                Id = DataStore.Instance.GetNextInvoiceId(),
+                ClientId = request.ClientId,
+                Amount = request.Amount,
+                IssueDate = request.IssueDate,
+                DueDate = request.DueDate,
+                Status = request.Status
+            };
+
+            DataStore.Instance.Invoices[invoice.Id] = invoice;
+            return CreatedAtAction(nameof(GetInvoice), new { invoiceId = invoice.Id }, invoice);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpGet("{invoiceId}")]
+    public ActionResult<Invoice> GetInvoice(int invoiceId)
+    {
+        if (!DataStore.Instance.Invoices.TryGetValue(invoiceId, out var invoice))
+            return NotFound($"Invoice with ID {invoiceId} not found");
+            
+        return Ok(invoice);
+    }
+
     [HttpPut("status")]
     public async Task<ActionResult<Invoice>> UpdateStatus([FromBody] UpdateInvoiceStatusRequest request)
     {
@@ -461,7 +578,7 @@ public class InvoiceController : ControllerBase
     }
 
     [HttpGet("{invoiceId}/status")]
-    public async Task<ActionResult<InvoiceStatus>> GetStatus(int invoiceId)
+    public async Task<ActionResult<string>> GetStatus(int invoiceId)
     {
         try
         {
@@ -492,6 +609,29 @@ public class InvoiceController : ControllerBase
     public async Task<ActionResult<InvoiceSummaryReport>> GenerateReport([FromBody] InvoiceReportRequest request)
     {
         var report = await _invoiceReportService.GenerateInvoiceSummaryReportAsync(request);
+        
+        if (report.Items.Count == 0)
+        {
+            string errorMessage = "No invoices found";
+            
+            if (!string.IsNullOrEmpty(request.ClientId))
+                errorMessage += $" for client '{request.ClientId}'";
+                
+            if (request.StartDate.HasValue || request.EndDate.HasValue)
+            {
+                errorMessage += " in the specified date range";
+                if (request.StartDate.HasValue)
+                    errorMessage += $" from {request.StartDate.Value:yyyy-MM-dd}";
+                if (request.EndDate.HasValue)
+                    errorMessage += $" to {request.EndDate.Value:yyyy-MM-dd}";
+            }
+            
+            if (!string.IsNullOrEmpty(request.Status))
+                errorMessage += $" with status '{request.Status}'";
+                
+            return NotFound(errorMessage);
+        }
+        
         return Ok(report);
     }
 
