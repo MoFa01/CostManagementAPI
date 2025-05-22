@@ -1,0 +1,28 @@
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Register services as singletons to work with singleton DataStore
+builder.Services.AddSingleton<IPaymentLoggingService, PaymentLoggingService>();
+builder.Services.AddSingleton<IReceiptGeneratorService, ReceiptGeneratorService>();
+builder.Services.AddSingleton<IInvoiceStatusService, InvoiceStatusService>();
+builder.Services.AddSingleton<IPaymentHistoryService, PaymentHistoryService>();
+builder.Services.AddSingleton<IInvoiceReportService, InvoiceReportService>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();

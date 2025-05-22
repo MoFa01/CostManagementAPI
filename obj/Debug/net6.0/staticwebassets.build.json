@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "i/woYxiTkCngYAtWkNVd6Jq+EcTsB1PIdvH4PK11NGk=",
+  "Source": "CostManagementAPI",
+  "BasePath": "_content/CostManagementAPI",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
