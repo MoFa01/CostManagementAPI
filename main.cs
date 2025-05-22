@@ -296,6 +296,9 @@ public class PaymentLoggingService : IPaymentLoggingService
         if (!Enum.IsDefined(typeof(PaymentMethod), request.Method))
             throw new ArgumentException($"Invalid payment method: {request.Method}");
 
+        if (request.Amount > invoice.RemainingAmount)
+            throw new ArgumentException($"Payment amount (${request.Amount}) exceeds the remaining amount (${invoice.RemainingAmount}) for invoice ID {request.InvoiceId}");
+
         var payment = new Payment
         {
             Id = _dataStore.GetNextPaymentId(),
