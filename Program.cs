@@ -1,18 +1,23 @@
+using CostManagementAPI.Interfaces;
+using CostManagementAPI.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container
+// Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
     });
-
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Register services as singletons to work with singleton DataStore
+// Register application services
 builder.Services.AddSingleton<IPaymentLoggingService, PaymentLoggingService>();
 builder.Services.AddSingleton<IReceiptGeneratorService, ReceiptGeneratorService>();
 builder.Services.AddSingleton<IInvoiceStatusService, InvoiceStatusService>();
@@ -21,7 +26,7 @@ builder.Services.AddSingleton<IInvoiceReportService, InvoiceReportService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
